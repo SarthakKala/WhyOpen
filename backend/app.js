@@ -11,6 +11,10 @@ app.get("/",(req,res,next)=>{
     res.send("Welcome to the server!");
 });
 
+app.get("/health",(req,res)=>{
+    res.json({ status: "Server is healthy." });
+})
+
 app.use((err,req,res,next)=>{
     console.error(err);
     res.status(500).json({ message: "Internal Server Error" });
