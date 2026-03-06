@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../config/prisma");
 const inferIntentAI = require("../service/inferIntentAI");
+const normalizeUrl = require("../utils/normalizeUrl");
+const hashTitle = require("../utils/hashTitle");
 
 router.post("/infer-intent", async (req, res) => {
   try {
@@ -14,8 +16,8 @@ router.post("/infer-intent", async (req, res) => {
       });
     }
 
-    const normalizedUrl = url;
-    const titleHash = title;
+    const normalizedUrl = normalizeUrl(url);
+    const titleHash = hashTitle(title);
 
     const cachedEntry = await prisma.intentCache.findUnique({
       where: {
@@ -36,8 +38,14 @@ router.post("/infer-intent", async (req, res) => {
       }
     }
 
-    const inferredIntent = "Research";
-    const confidence = 0.75;
+    const aiResult = await inferIntentAI({
+    url,
+    title,
+    searchQuery
+    });
+
+    const inferredIntent = aiResult.intent;
+    const confidence = aiResult.confidence;
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await prisma.intentCache.upsert({
@@ -50,6 +58,8 @@ router.post("/infer-intent", async (req, res) => {
     update: {
         inferredIntent,
         confidence,
+        source:'ai',
+        searchQuery,
         expiresAt,
     },
     create: {
@@ -57,6 +67,8 @@ router.post("/infer-intent", async (req, res) => {
         titleHash,
         inferredIntent,
         confidence,
+        source:'ai',
+        searchQuery,
         expiresAt,
     },
     });
