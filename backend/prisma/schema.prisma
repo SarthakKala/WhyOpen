@@ -18,6 +18,9 @@ model IntentCache {
   titleHash      String
   inferredIntent String
   confidence     Float
+  source         String
+  searchQuery    String?
+  aiRawResponse  String?
   createdAt      DateTime @default(now())
   expiresAt      DateTime
   @@unique([normalizedUrl, titleHash])

@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const prisma = require("../config/prisma");
+const inferIntentAI = require("../service/inferIntentAI");
 
 router.post("/infer-intent", async (req, res) => {
   try {
@@ -65,7 +66,7 @@ router.post("/infer-intent", async (req, res) => {
         confidence: confidence,
         cached: false,
     });
-    
+
   } 
   
   catch (error) {
