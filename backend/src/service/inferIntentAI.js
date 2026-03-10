@@ -1,7 +1,9 @@
 const openai = require("../config/openai");
+const genAI = require("../config/gemini");
 const intentCategories = require("../config/intentCategories");
 
 async function inferIntentAI({ url, title, searchQuery }) {
+
   const categoriesList = intentCategories
     .map((cat, i) => `${i + 1}. ${cat}`)
     .join("\n");
@@ -12,43 +14,61 @@ You classify the user's intent behind opening a webpage.
 Allowed intent categories:
 ${categoriesList}
 
-Use the following information:
-
 Title: ${title}
 URL: ${url}
 Search Query: ${searchQuery || "None"}
 
-Return ONLY valid JSON in this format:
+Return ONLY JSON:
 
 {
-  "intent": "category from list",
+  "intent": "category",
   "confidence": number between 0 and 1
 }
 `;
 
-  const response = await openai.createChatCompletion({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: "You are an intent classification system." },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.2,
-  });
+  /* ---------------- OPENAI ---------------- */
 
-  const aiText = response.data.choices[0].message.content;
+  // if (process.env.OPENAI_API_KEY) {
 
-  let parsed;
+  //   const response = await openai.createChatCompletion({
+  //     model: "gpt-4o-mini",
+  //     messages: [
+  //       { role: "system", content: "You classify browsing intent." },
+  //       { role: "user", content: prompt }
+  //     ],
+  //     temperature: 0.2
+  //   });
 
-  try {
-    parsed = JSON.parse(aiText);
-  } catch (err) {
-    throw new Error("AI returned invalid JSON");
+  //   const aiText = response.data.choices[0].message.content;
+
+  //   return JSON.parse(aiText);
+  // }
+
+  /* ---------------- GEMINI ---------------- */
+
+  if (process.env.GEMINI_API_KEY) {
+
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      temperature: 0.2
+    });
+
+    const result = await model.generateContent(prompt);
+
+    const text = result.response.text();
+
+    const cleaned = text.replace(/```json|```/g, "").trim();
+
+    return JSON.parse(cleaned);
   }
 
+  /* ---------------- FALLBACK ---------------- */
+
   return {
-    intent: parsed.intent,
-    confidence: parsed.confidence,
+    intent: "Research",
+    confidence: 0.5
   };
+
 }
 
 module.exports = inferIntentAI;

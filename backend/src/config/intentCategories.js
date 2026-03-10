@@ -6,6 +6,7 @@ module.exports = [
   "Comparison",
   "Entertainment",
   "Social",
+  "Sports",
   "News",
   "Productivity",
   "Other"

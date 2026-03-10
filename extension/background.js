@@ -1,52 +1,119 @@
+console.log("WhyOpen background started");
+
 const API_URL = "http://localhost:8000/api/infer-intent";
 
-// URL NORMALIZATION 
+let inferenceQueue = [];
+let isProcessing = false;
+let processingTabs = new Set();
 
-function normalizeUrl(rawUrl) {
-  const url = new URL(rawUrl);
+/* ---------------- QUEUE MANAGEMENT ---------------- */
 
-  url.hash = "";
+function enqueueTab(tab) {
 
-  const paramsToRemove = [
-    "utm_source",
-    "utm_medium",
-    "utm_campaign",
-    "utm_term",
-    "utm_content",
-    "ref",
-    "fbclid"
-  ];
+  if (processingTabs.has(tab.id)) return;
 
-  paramsToRemove.forEach(param => {
-    url.searchParams.delete(param);
-  });
+  processingTabs.add(tab.id);
+  inferenceQueue.push(tab);
 
-  return url.toString();
+  processQueue();
+
 }
 
-// TITLE HASH 
+async function processQueue() {
 
-async function hashTitle(title) {
-  const msgUint8 = new TextEncoder().encode(
-    title.trim().toLowerCase()
-  );
+  if (isProcessing) return;
 
-  const hashBuffer = await crypto.subtle.digest(
-    "SHA-256",
-    msgUint8
-  );
+  isProcessing = true;
 
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  while (inferenceQueue.length > 0) {
 
-  return hashArray
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
+    const tab = inferenceQueue.shift();
+
+    await inferIntent(tab);
+
+    processingTabs.delete(tab.id);
+
+  }
+
+  isProcessing = false;
+
 }
 
-// SEARCH QUERY DETECTION 
+/* ---------------- INFERENCE ---------------- */
+
+async function inferIntent(tab) {
+
+  if (!tab.url || tab.url.startsWith("chrome://")) return;
+
+  const storage = await chrome.storage.local.get([
+    "urlCache",
+    "tabIntents",
+    "lastSearchQuery"
+  ]);
+
+  const urlCache = storage.urlCache || {};
+  const tabIntents = storage.tabIntents || {};
+  const searchQuery = storage.lastSearchQuery || null;
+
+  const cacheKey = `${tab.url}:${tab.title}:${searchQuery || "none"}`;
+
+  if (urlCache[cacheKey]) {
+
+    tabIntents[tab.id] = {
+      intent: urlCache[cacheKey].intent,
+      url: tab.url,
+      title: tab.title
+    };
+
+    await chrome.storage.local.set({ tabIntents });
+
+    return;
+
+  }
+
+  try {
+
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        url: tab.url,
+        title: tab.title,
+        searchQuery
+      })
+    });
+
+    const data = await response.json();
+
+    urlCache[cacheKey] = data;
+
+    tabIntents[tab.id] = {
+      intent: data.intent,
+      url: tab.url,
+      title: tab.title
+    };
+
+    await chrome.storage.local.set({
+      urlCache,
+      tabIntents
+    });
+
+  } catch (err) {
+
+    console.error("Inference failed:", err);
+
+  }
+
+}
+
+/* ---------------- SEARCH QUERY DETECTION ---------------- */
 
 function extractSearchQuery(urlString) {
+
   try {
+
     const url = new URL(urlString);
 
     if (
@@ -66,79 +133,45 @@ function extractSearchQuery(urlString) {
   }
 
   return null;
-}
-
-// MAIN LOGIC 
-
-async function processTab(tab) {
-
-  if (!tab.url || tab.url.startsWith("chrome://")) return;
-
-  /* detect search queries */
-  const detectedQuery = extractSearchQuery(tab.url);
-
-  if (detectedQuery) {
-    await chrome.storage.local.set({
-      lastSearchQuery: detectedQuery
-    });
-
-    return; // search page itself doesn't need inference
-  }
-
-  const { lastSearchQuery } =
-    await chrome.storage.local.get("lastSearchQuery");
-
-  const normalizedUrl = normalizeUrl(tab.url);
-  const titleHash = await hashTitle(tab.title);
-
-  const cacheKey =
-    `intent:${normalizedUrl}:${titleHash}:${lastSearchQuery || "none"}`;
-
-  const cache = await chrome.storage.local.get(cacheKey);
-
-  if (cache[cacheKey]) {
-    console.log("Extension cache hit:", cache[cacheKey]);
-    return;
-  }
-
-  try {
-
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        url: tab.url,
-        title: tab.title,
-        searchQuery: lastSearchQuery || null
-      })
-    });
-
-    const data = await response.json();
-
-    await chrome.storage.local.set({
-      [cacheKey]: data
-    });
-
-    console.log("Stored result:", data);
-
-  } catch (err) {
-
-    console.error("Backend request failed:", err);
-
-  }
 
 }
 
-// EVENTS 
+/* ---------------- TAB EVENTS ---------------- */
 
 chrome.tabs.onUpdated.addListener(
-  (tabId, changeInfo, tab) => {
+  async (tabId, changeInfo, tab) => {
 
-    if (changeInfo.status === "complete") {
-      processTab(tab);
+    if (changeInfo.status !== "complete") return;
+
+    console.log("TAB UPDATED EVENT FIRED");
+    console.log("Tab loaded:", tab.url);
+
+    const query = extractSearchQuery(tab.url);
+
+    if (query) {
+
+      const storage = await chrome.storage.local.get("tabIntents");
+      const tabIntents = storage.tabIntents || {};
+
+      /* store search query context */
+      await chrome.storage.local.set({
+        lastSearchQuery: query
+      });
+
+      /* FIX: store search page intent */
+      tabIntents[tab.id] = {
+        intent: "Search",
+        url: tab.url,
+        title: tab.title
+      };
+
+      await chrome.storage.local.set({ tabIntents });
+
+      return;
+
     }
+
+    enqueueTab(tab);
 
   }
 );
@@ -147,7 +180,44 @@ chrome.tabs.onActivated.addListener(
   async (activeInfo) => {
 
     const tab = await chrome.tabs.get(activeInfo.tabId);
-    processTab(tab);
+
+    enqueueTab(tab);
 
   }
 );
+
+/* ---------------- TAB CLOSE CLEANUP ---------------- */
+
+chrome.tabs.onRemoved.addListener(
+  async (tabId) => {
+
+    const storage = await chrome.storage.local.get("tabIntents");
+
+    const tabIntents = storage.tabIntents || {};
+
+    delete tabIntents[tabId];
+
+    await chrome.storage.local.set({ tabIntents });
+
+  }
+);
+
+/* ---------------- POPUP MESSAGING ---------------- */
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+
+  if (message.action === "getTabIntents") {
+
+    chrome.storage.local.get("tabIntents").then((data) => {
+
+      sendResponse({
+        tabIntents: data.tabIntents || {}
+      });
+
+    });
+
+    return true;
+
+  }
+
+});
