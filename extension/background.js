@@ -62,7 +62,8 @@ async function inferIntent(tab) {
     tabIntents[tab.id] = {
       intent: urlCache[cacheKey].intent,
       url: tab.url,
-      title: tab.title
+      title: tab.title,
+      searchQuery : searchQuery
     };
 
     await chrome.storage.local.set({ tabIntents });
@@ -92,7 +93,8 @@ async function inferIntent(tab) {
     tabIntents[tab.id] = {
       intent: data.intent,
       url: tab.url,
-      title: tab.title
+      title: tab.title,
+      searchQuery : searchQuery
     };
 
     await chrome.storage.local.set({
@@ -162,7 +164,8 @@ chrome.tabs.onUpdated.addListener(
       tabIntents[tab.id] = {
         intent: "Search",
         url: tab.url,
-        title: tab.title
+        title: tab.title,
+        searchQuery: query
       };
 
       await chrome.storage.local.set({ tabIntents });

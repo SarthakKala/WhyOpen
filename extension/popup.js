@@ -23,6 +23,8 @@ function renderTabs(tabs, tabIntents) {
 
   for (const tab of tabs) {
 
+    const intentData = tabIntents[tab.id];
+
     const card = document.createElement("div");
     card.className = "tab-card";
 
@@ -37,7 +39,12 @@ function renderTabs(tabs, tabIntents) {
     domain.className = "tab-domain";
     domain.textContent = new URL(tab.url).hostname;
 
-    const intentData = tabIntents[tab.id];
+    const query = document.createElement("div");
+    query.className = "tab-query";
+    if (intentData?.searchQuery) {
+      query.textContent = `Looking for: ${intentData.searchQuery}`;
+    }
+
 
     if (intentData) {
 
@@ -52,6 +59,7 @@ function renderTabs(tabs, tabIntents) {
 
     card.appendChild(badge);
     card.appendChild(title);
+    card.appendChild(query);
     card.appendChild(domain);
 
     container.appendChild(card);

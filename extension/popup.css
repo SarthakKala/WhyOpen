@@ -35,6 +35,12 @@ h2 {
 
 }
 
+.tab-query {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+}
+
 .tab-title {
 
   font-size: 13px;
